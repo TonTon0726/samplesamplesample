@@ -1,0 +1,51 @@
+from bs4 import BeautifulSoup
+import sys
+import datetime
+from zipfile import ZipFile
+import html
+import os
+import shutil
+from selenium.webdriver.edge.service import Service as EdgeService
+from selenium.webdriver.common.by import By
+from selenium.webdriver.edge.service import Service as EdgeService
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.chrome.options import Options
+import requests
+import pandas as pd
+import sqlalchemy
+from sqlalchemy import text
+from sqlalchemy import insert
+from sqlalchemy import MetaData, Table, Column
+import re
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.mime.text import MIMEText
+from email.utils import formatdate
+from email import encoders
+
+
+
+
+options = Options()
+try:
+    options.add_experimental_option("excludeSwitches", ["enable-logging"])
+except:
+    pass
+
+edge_options=webdriver.EdgeOptions()
+try:
+    edge_options.add_experimental_option("excludeSwitches", ["enable-logging"])
+    edge_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36")
+    # edge_options.add_argument('--headless')
+except:
+    pass
+# edge_options.add_argument("--headless=new")
+edge_options.add_argument("start-maximized")
+edge_options.add_argument("disable-gpu")
+edge_options.add_argument("disable-dev-shm-usage")
+
+driver = webdriver.Edge(options=edge_options)
