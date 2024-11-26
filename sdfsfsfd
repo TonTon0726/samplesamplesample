@@ -1,0 +1,229 @@
+from bs4 import BeautifulSoup
+import sys
+import datetime
+from zipfile import ZipFile
+import html
+import os
+import shutil
+from selenium.webdriver.edge.service import Service as EdgeService
+from Diff import diff_match_patch
+from selenium.webdriver.common.by import By
+from selenium.webdriver.edge.service import Service as EdgeService
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.chrome.options import Options
+import requests
+import pandas as pd
+import sqlalchemy
+from sqlalchemy import text
+from sqlalchemy import insert
+from sqlalchemy import MetaData, Table, Column
+import re
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.mime.text import MIMEText
+from email.utils import formatdate
+from email import encoders
+
+
+#collect all the status
+collect_data = []
+
+# Connecting to database
+engine_stmt = (
+    "mssql+pyodbc://ContentTeamAPP:U98=k9M23H&Cgw5MW6tDBgAp9@RETDA2SQLD150/ContentTeamOPEX?driver=SQL Server")
+engine = sqlalchemy.create_engine(engine_stmt)
+with engine.connect() as conn1:
+        sql = "SELECT * FROM tblFormInfo"
+        tbl_Forminfo_df = pd.read_sql(sql, conn1)
+        
+
+
+options = Options()
+try:
+    options.add_experimental_option("excludeSwitches", ["enable-logging"])
+except:
+    pass
+
+edge_options=webdriver.EdgeOptions()
+try:
+    edge_options.add_experimental_option("excludeSwitches", ["enable-logging"])
+    edge_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36")
+except:
+    pass
+# edge_options.add_argument("--headless=new")
+edge_options.add_argument("start-maximized")
+edge_options.add_argument("disable-gpu")
+edge_options.add_argument("disable-dev-shm-usage")
+
+driver = webdriver.Edge(options=edge_options)
+
+def clean_output(rawtext):
+    # Parse the HTML content
+    rawtext = rawtext.replace('&para;<br>','')
+    soup = BeautifulSoup(rawtext, 'html.parser')
+
+
+
+
+
+# Loop per each row from df
+for index, row in tbl_Forminfo_df.iterrows():
+    form_id = row['FormID']
+    form_name = row['FormName']
+    form_url = row['FormURL']
+    form_status = row['Status']
+    form_source_type = row['SourceType']
+    form_last_modified = row['EffectiveDate']
+
+    # for PDF
+    if form_source_type == "PDF": # or doc docx
+        Last_modified == "No date available"
+        # get the latest last modified date
+        try:
+            my_header = {'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36'}
+            header = requests.get(form_url, headers=my_header )
+            if 'Last-Modified' in header.headers:
+                Last_modified = header.headers['Last-Modified']
+            else:
+                try:
+                    my_header = {'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36'}
+                    header = requests.get(form_url, headers=my_header )
+                    if 'Last-Modified' in header.headers:
+                        try:
+                            Last_modified = header.headers['Last-Modified']
+                        except:
+                            Last_modified = header.headers['last-modified']
+                except:
+                    collect_data.append([form_id, form_url, "Unable to check", datetime.datetime.now().strftime("%b %d %Y %I:%M %p")])
+                    continue   
+        except:
+            collect_data.append([form_id, form_url, "Unable to check", datetime.datetime.now().strftime("%b %d %Y %I:%M %p")])
+            continue   
+        # Compare the date
+        if Last_modified == "No date available":
+            collect_data.append([form_id, form_url, "Unable to check", datetime.datetime.now().strftime("%b %d %Y %I:%M %p")])
+            continue
+        else:
+            if Last_modified == form_last_modified: # add the Last_modified 
+                collect_data.append([form_id, form_url, "Updated", datetime.datetime.now().strftime("%b %d %Y %I:%M %p")])
+            else:
+                collect_data.append([form_id, form_url, "With Update", datetime.datetime.now().strftime("%b %d %Y %I:%M %p")])       
+
+    elif form_source_type=="URL": # Website
+        try:
+            new_text = driver.driver.find_element_by_css_selector("body").get_attribute("innerHTML") # request to pau body only
+            new_text = "<html>" + new_text + "</html>"
+            # the old files
+            old_text = open("\\new_.html", "r", encoding="utf-8").read()
+            new_text =  re.sub('\s+',' ',new_text)
+            old_text =  re.sub('\s+',' ',old_text)
+            new_text = str(clean_output(new_text))
+            old_text = str(clean_output(old_text))
+            # Clean href
+            soup_new_text = BeautifulSoup(new_text, 'html.parser')
+            a_element = soup_new_text.findAll('a')
+            for href_elem in a_element:
+                try:
+                    if str(href_elem['href']).startswith("#"):
+                        href_elem.attrs = {}
+                    else:
+                        # Remove all attributes except 'href'
+                        href_elem.attrs = {'href': href_elem['href']}
+                except:
+                    pass
+            new_text = str(soup_new_text)
+            # Clean href    
+                
+
+            soup_old_text = BeautifulSoup(old_text, 'html.parser')
+            a_element = soup_old_text.findAll('a')
+
+            for href_elem in a_element:
+                try:
+                    if str(href_elem['href']).startswith("#"):
+                        href_elem.attrs = {}
+                    else:
+                        # Remove all attributes except 'href'
+                        href_elem.attrs = {'href': href_elem['href']}
+                except:
+                    pass
+
+                text2 = str(soup_old_text)
+                # Start comparing
+
+                dmp = diff_match_patch()
+                # Depending on the kind of text you work with, in terms of overall length
+                # and complexity, you may want to extend (or here suppress) the
+                # time_out feature
+                dmp.Diff_Timeout = 0  # or some other value, default is 1.0 seconds
+                # All 'diff' jobs start with invoking diff_main()
+                diffs = dmp.diff_main(new_text, old_text)
+                # diff_cleanupSemantic() is used to make the diffs array more "human" readable
+                dmp.diff_cleanupSemantic(diffs)
+                # and if you want the results as some ready to display HTML snippet
+                htmlSnippet = dmp.diff_prettyHtml(diffs)
+                compare_path = "Compare.html" # Compare files
+                htmlSnippet = htmlSnippet.replace("&para;<br>", "")
+                with open(compare_path, "w", encoding='utf-8') as compare_file:
+                    compare_file.write(html.unescape(htmlSnippet.replace("&lt;", "<").replace("&gt;", ">")))
+                    compare_file.close()
+                if "<mark>" in htmlSnippet:
+                    Status = "With Changes"
+                else:
+                    Status = "Current"
+                if Status == "With Changes":
+                    collect_data.append([form_id, form_url, "With Update", datetime.datetime.now().strftime("%b %d %Y %I:%M %p")])       
+                    # change the value to the from new to old
+
+                    with open("new.html", 'w', encoding="utf-8") as file:
+                        file.write(new_text)
+
+                    with open("old.html", 'w', encoding="utf-8") as file:
+                        file.write(old_text)
+
+                else:
+                   collect_data.append([form_id, form_url, "Updated", datetime.datetime.now().strftime("%b %d %Y %I:%M %p")])       
+
+                
+        except:
+             collect_data.append([form_id, form_url, "Error", datetime.datetime.now().strftime("%b %d %Y %I:%M %p")])  
+
+  
+
+from sqlalchemy import text
+conn_str = ("Driver={SQL Server};"
+            "Server=RETDA2SQLD150;"
+            "Database=ContentTeamOPEX;"
+            "UID=ContentTeamAPP;"
+            "PWD=U98=k9M23H&Cgw5MW6tDBgAp9;")
+engine_stmt = (
+    "mssql+pyodbc://ContentTeamAPP:U98=k9M23H&Cgw5MW6tDBgAp9@RETDA2SQLD150/ContentTeamOPEX?driver=SQL Server")
+engine = sqlalchemy.create_engine(engine_stmt)
+
+with engine.connect() as conn1:
+    for index, row in collect_data.iterrows():
+        juris = row["Jurisdiction"]
+        status = row["Status"]
+        compare_file = row["Compare file"]
+        date_last_check = row["Last checked"]
+        date_modified_check = row["Last modified"]
+
+        query = text("""
+            UPDATE formid 
+            SET Status = :status, 
+                Links = :links, 
+                Datemodified = :date_modified, 
+                Datelastcheked = :date_last_checked 
+            WHERE Jurisdiction = :juris
+        """)
+        conn1.execute(query, {
+            "status": "Current",
+            "links": compare_file,
+            "date_modified": date_modified_check,
+            "date_last_checked": date_last_check,
+            "juris": juris
+        })
